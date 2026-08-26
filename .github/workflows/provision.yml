@@ -1,0 +1,205 @@
+name: Provision Student Repository
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  create-repo:
+    runs-on: ubuntu-latest
+    env:
+      ORG_NAME: "FSProjectPortfolioIV"
+      EXPECTED_HASH: "ad6ef0ee6945bf78405312c97181b25466d08165ee1be4c104b960b27be37c4f"
+    steps:
+      # ==================== GENERATE ORG BOT TOKEN ====================
+      - name: Generate GitHub App Installation Token
+        id: app_token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ env.ORG_NAME }}   # make scope beyond this repo so templates are accessible
+      # ================================================================
+
+      - name: Checkout Enrollment Repository
+        uses: actions/checkout@v7
+        with:
+          token: ${{ steps.app_token.outputs.token }}
+
+      - name: Parse and Validate form data
+        id: code_check
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+        run: |
+          # Extract the student's email from the issue body and derive the username (part before the @)
+          STUDENT_EMAIL=$(echo "$ISSUE_BODY" | grep -oiE '[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}' | head -n1)
+          if [ -z "$STUDENT_EMAIL" ]; then
+            echo "AUTH_FAILED=true" >> $GITHUB_ENV
+            echo "FAILURE_REASON=No valid email address was found in the issue body. Please ensure your Full Sail email is included in the submission." >> $GITHUB_ENV
+            echo "::error::Check failed: No valid email address found in the issue body."
+            exit 0
+          fi
+          STUDENT_EMAIL_USERNAME="${STUDENT_EMAIL%%@*}"
+          echo "STUDENT_EMAIL_USERNAME=$STUDENT_EMAIL_USERNAME" >> $GITHUB_ENV
+
+          # Normalize the full email (trim whitespace/carriage returns and lowercase) for hashing
+          STUDENT_EMAIL_NORMALIZED=$(echo "$STUDENT_EMAIL" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')
+          echo "STUDENT_EMAIL_NORMALIZED=$STUDENT_EMAIL_NORMALIZED" >> $GITHUB_ENV
+
+          # Hash the normalized email and verify it against hash.db
+          STUDENT_EMAIL_HASH=$(printf '%s' "$STUDENT_EMAIL_NORMALIZED" | sha256sum | awk '{print $1}')
+          if ! grep -q "$STUDENT_EMAIL_HASH" hash.db; then
+            echo "AUTH_FAILED=true" >> $GITHUB_ENV
+            echo "FAILURE_REASON=Your email was not found in the authorized student list. Contact your instructor to be added." >> $GITHUB_ENV
+            echo "::error::Check failed: Email hash not found in hash.db (student not authorized)."
+            exit 0
+          fi
+
+          # Extract the claim code submitted by the student (value following the "Claim Code" heading)
+          STUDENT_CODE=$(echo "$ISSUE_BODY" | awk '/^###[[:space:]]+Claim Code/{getline; while ($0 ~ /^[[:space:]]*$/) getline; print; exit}')
+          # Trim leading/trailing whitespace and carriage returns
+          STUDENT_CODE=$(echo "$STUDENT_CODE" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+          if [ -z "$STUDENT_CODE" ]; then
+            echo "AUTH_FAILED=true" >> $GITHUB_ENV
+            echo "FAILURE_REASON=No claim code was found in the issue body. Please ensure you have entered a claim code under the Claim Code heading." >> $GITHUB_ENV
+            echo "::error::Check failed: No claim code found in the issue body."
+            exit 0
+          fi
+
+          # Hash the trimmed passcode with SHA-256 for comparison
+          STUDENT_HASH=$(printf '%s' "$STUDENT_CODE" | sha256sum | awk '{print $1}')
+
+          # Redact claim code and student email in the issue body using fixed-string replacement
+          REDACTED_BODY=${ISSUE_BODY//"$STUDENT_CODE"/[used claim code]}
+          REDACTED_BODY=${REDACTED_BODY//"$STUDENT_EMAIL"/[redacted email]}
+          gh issue edit "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$REDACTED_BODY"
+
+          # Validate the passcode hash
+          if [ "$STUDENT_HASH" != "$EXPECTED_HASH" ]; then
+            echo "AUTH_FAILED=true" >> $GITHUB_ENV
+            echo "FAILURE_REASON=The claim code you submitted is incorrect. Please verify your claim code in FSO and try again." >> $GITHUB_ENV
+            echo "::error::Check failed: Claim code hash does not match the expected passcode."
+            exit 0
+          fi
+          echo "AUTH_FAILED=false" >> $GITHUB_ENV
+
+      - name: Handle Invalid Passcode
+        if: always() && env.AUTH_FAILED == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "❌ **Repository Creation Failed:** ${FAILURE_REASON}"
+          gh issue close $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --reason "not planned"
+          exit 2
+
+      - name: Notify Student of Verification Success
+        if: env.AUTH_FAILED == 'false'
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "✅ Verification passed. Creating repos (be patient, this will take a few minutes)"
+
+      - name: Provision All Lab Repositories
+        if: env.AUTH_FAILED == 'false'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          ORG: ${{ env.ORG_NAME }}
+          STUDENT_EMAIL_USERNAME: ${{ env.STUDENT_EMAIL_USERNAME }}
+          STUDENT_GITHUB_LOGIN: ${{ github.event.issue.user.login }}
+        run: |
+          MONTH_ABBREV=$(date +"%b" | tr '[:lower:]' '[:upper:]')
+          LABS="2604"
+
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          SUMMARY=""
+
+          for N in $LABS; do
+            TEMPLATE_REPO="SPRLabs${N}"
+            NEW_REPO_NAME="SPR_${MONTH_ABBREV}_Labs_${STUDENT_EMAIL_USERNAME}"
+
+            # Skip creation if the student already has this repo
+            if gh repo view "$ORG/$NEW_REPO_NAME" > /dev/null 2>&1; then
+              echo "::warning::Repository $ORG/$NEW_REPO_NAME already exists. Skipping."
+              SUMMARY="${SUMMARY}- https://github.com/${ORG}/${NEW_REPO_NAME} (already existed)\n"
+              continue
+            fi
+
+            echo "Creating private repository $NEW_REPO_NAME from template $TEMPLATE_REPO..."
+            gh api \
+              --method POST \
+              -H "Accept: application/vnd.github+json" \
+              /repos/$ORG/$TEMPLATE_REPO/generate \
+              -f owner="$ORG" \
+              -f name="$NEW_REPO_NAME" \
+              -F private=true
+
+            # Wait for the template copy to finish initializing branches (45s max)
+            for i in $(seq 1 15); do
+              BRANCH_CHECK=$(gh api /repos/$ORG/$NEW_REPO_NAME/branches --jq '.[].name' 2>/dev/null || true)
+              if [ -n "$BRANCH_CHECK" ]; then
+                echo "Repository files and branches initialized successfully!"
+                break
+              fi
+              echo "Template copy in progress... waiting 3 seconds (Attempt $i/15)"
+              sleep 3
+            done
+            sleep 5
+
+            echo "Adding student $STUDENT_GITHUB_LOGIN as a collaborator..."
+            gh api \
+              --method PUT \
+              -H "Accept: application/vnd.github+json" \
+              /repos/$ORG/$NEW_REPO_NAME/collaborators/$STUDENT_GITHUB_LOGIN \
+              -f permission='admin'
+
+            echo "Setting topics..."
+            gh repo edit "$ORG/$NEW_REPO_NAME" --add-topic "spr-student"
+
+            echo "Initializing assignment branch and PR..."
+            rm -rf "$NEW_REPO_NAME"
+            git clone "https://x-access-token:${GH_TOKEN}@github.com/${ORG}/${NEW_REPO_NAME}.git"
+            (
+              cd "$NEW_REPO_NAME"
+              git checkout main
+              git checkout -b assignment
+              git commit --allow-empty -m "Initialize assignment branch"
+              git push origin assignment
+            )
+
+            SUMMARY="${SUMMARY}- https://github.com/${ORG}/${NEW_REPO_NAME}\n"
+          done
+
+          {
+            echo "PROVISION_SUMMARY<<EOF"
+            printf "%b" "$SUMMARY"
+            echo "EOF"
+          } >> $GITHUB_ENV
+
+      - name: Close Issue and Reply to Student
+        if: env.AUTH_FAILED == 'false'
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          STUDENT_GITHUB_LOGIN: ${{ github.event.issue.user.login }}
+        run: |
+          gh issue comment $ISSUE_NUMBER \
+            --repo "$GITHUB_REPOSITORY" \
+            --body "@${STUDENT_GITHUB_LOGIN}, your private lab repositories have been configured:
+
+          ${PROVISION_SUMMARY}
+          
+          **IMPORTANT**: This message will auto delete in 30 minutes. Please back this up for your records."
+          gh issue close $ISSUE_NUMBER \
+            --repo "$GITHUB_REPOSITORY" \
+            --reason "completed"

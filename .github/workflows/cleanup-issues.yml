@@ -1,0 +1,63 @@
+name: Cleanup Closed Issues
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  redact-old-closed-issues:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    # env:
+    #   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      # ==================== GENERATE ORG BOT TOKEN ====================
+      - name: Generate GitHub App Installation Token
+        id: app_token
+        uses: actions/create-github-app-token@v3
+#        with:
+#          app-id: ${{ secrets.APP_ID }}
+#          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        with:
+          client-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      # ================================================================
+      - name: Redact comments on closed issues older than 30 minutes
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+        run: |
+          OLD_ISSUES=$(gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state closed \
+            --json number,closedAt \
+            --jq '.[] | select((.closedAt | fromdate) < (now - 1800)) | .number')
+
+          if [ -z "$OLD_ISSUES" ]; then
+            echo "No closed issues older than 30 minutes found."
+            exit 0
+          fi
+
+          for ISSUE_NUMBER in $OLD_ISSUES; do
+            echo "Redacting comments on issue #$ISSUE_NUMBER..."
+            COMMENT_IDS=$(gh api \
+              "/repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" \
+              --jq '.[].id')
+
+            if [ -z "$COMMENT_IDS" ]; then
+              echo "Issue #$ISSUE_NUMBER has no comments. Skipping."
+              continue
+            fi
+
+            for COMMENT_ID in $COMMENT_IDS; do
+              gh api \
+                --method PATCH \
+                -H "Accept: application/vnd.github+json" \
+                /repos/"$GITHUB_REPOSITORY"/issues/comments/"$COMMENT_ID" \
+                -f body="[redacted - pending delete]"
+              echo "  Redacted comment $COMMENT_ID"
+            done
+          done
