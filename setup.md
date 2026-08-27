@@ -60,7 +60,7 @@ gh api --method PATCH /repos/YourOrganizationName/LabName -f is_template=true
 
 ---
 
-## 3. Create the `ORG_ADMIN_TOKEN`
+## 3. Create the `ORG_ADMIN_TOKEN` (optional -- not used by the current workflows)
 
 The workflow uses a Personal Access Token (PAT) stored as `ORG_ADMIN_TOKEN` to create repos from templates, add collaborators, set topics, clone/push, and create pull requests — all across the organization.
 
@@ -161,90 +161,59 @@ Now that we have the data, lets create our secrets
 
 ---
 
-## 7. Configure the Claim Code (Passcode)
+## 7. Configure `dev4Info.txt`
 
-The workflow validates a shared "claim code" that students enter when submitting their enrollment issue. The code is stored as a SHA-256 hash in the `EXPECTED_HASH` environment variable inside `provision.yml`.
+All course settings live in `dev4Info.txt` at the repo root. The workflow reads them at
+run time, so you never edit the YAML for routine changes.
 
-### Generate a new passcode hash
-
-```bash
-printf '%s' "your-secret-passcode" | sha256sum | awk '{print $1}'
+```
+# PREFIX: dev4-
+# TEMPLATE: fsprojectportfolioiv_handout-dev4-starting-materials-v1-1-PPIV_HANDOUT2604
+# COURSE_CODE: <sha-256 of the course code>
 ```
 
-### Update the workflow
+| Key | Meaning |
+|---|---|
+| `PREFIX` | Prepended to the student's GitHub login to name their repo. Keep it fixed -- students keep one repo for the whole course. |
+| `TEMPLATE` | The single template repository new repos are generated from. |
+| `COURSE_CODE` | SHA-256 of the course code. One code for the life of the course. |
 
-1. Open `.github/workflows/provision.yml`
-2. Find the `EXPECTED_HASH` variable (line 16) and replace its value with the hash you generated:
+### Generate the course code hash
 
-   ```yaml
-   EXPECTED_HASH: "your-new-hash-here"
-   ```
+```bash
+printf '%s' "your-course-code" | sha256sum | awk '{print $1}'
+```
 
-3. Commit and push the change:
+Use `printf '%s'`, **not** `echo` -- `echo` appends a newline and changes the digest.
 
-   ```bash
-   git add .github/workflows/provision.yml
-   git commit -m "Update claim code hash for new term"
-   git push
-   ```
+Paste the result after `# COURSE_CODE: `, commit, and push. Share the **plaintext** code
+with students via FSO. Never commit the plaintext.
 
-4. Share the **plaintext** passcode with your students (e.g. post it in FSO / the LMS). Never commit the plaintext passcode.
+### Set the organization name
+
+`ORG_NAME` is the one value still in the workflow, at the top of
+`.github/workflows/provision.yml`. Set it once for your organization.
 
 ---
 
-## 8. Configure the rest of the provisioning yml
+## 8. Authorization model
 
-1. Change the ORG_NAME variable (line 15) to your correct organization name.
-2. Navigate to line 120 and modify the Labs variable as you need
-   - This course has a single repository with all labs for the month in it. If you use multiple repositories you will need to add the different names to this variable separated by a space
-   - You will also need to modify the TEMPLATE_REPO and NEW_REPO_NAME variables to match your template repositories and new name to match your course acronym.
-   - ex: Your course is RBQ and you have 3 template labs names RBQLab1, RBQBonusLab, and RBQFinalProject
-        - 120 - LABS="Lab1 BonusLab FinalProject"
-        - 128 - TEMPLATE_REPO="RBQ${N}"
-        - 129 -  NEW_REPO_NAME="RBQ_${MONTH_ABBREV}_Labs_${STUDENT_EMAIL_USERNAME}"
-3. Commit and push the change:
+There is **no student roster and no email check**. Anyone who can open an issue on this
+repository and knows the course code receives a repository, subject to:
 
-   ```bash
-   git add .github/workflows/provision.yml
-   git commit -m "Update claim code hash for new term"
-   git push
-   ```
+- the code matching `COURSE_CODE`
+- the student not already having a repo
+
+There is no seat cap.
+
+This is deliberate: the course code is distributed through FSO, which is already
+authenticated, so the code itself is the access control. Keep the enrollment repository
+private so the code hash and configuration are not publicly readable.
 
 ---
 
-## 9. Populate `hash.db` with Authorized Student Emails
 
-The workflow checks each student's email against `hash.db` before provisioning. Only students whose email hash appears in this file will be authorized.
-
-### Add a single student
-
-```bash
-printf '%s' "studentname@student.fullsail.edu" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]' | sha256sum | awk '{print $1}' >> hash.db
-```
-
-### Bulk add from a file
-
-Create a plain text file (e.g. `students.txt`) with one email per line, then run:
-
-```bash
-while IFS= read -r email || [[ -n "$email" ]]; do
-  printf '%s' "$email" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]' | sha256sum | awk '{print $1}' >> hash.db
-done < students.txt
-```
-
-### Commit the changes
-
-```bash
-git add hash.db
-git commit -m "Add authorized students for new term"
-git push
-```
-
-> See `teacher.md` for instructions on removing students and other ongoing maintenance.
-
----
-
-## 10. Enable GitHub Actions and Workflow Permissions
+## 9. Enable GitHub Actions and Workflow Permissions
 
 ### Enable Actions
 
@@ -271,13 +240,13 @@ However, GitHub also has an org/repo-level setting that can override this. Verif
 
 ---
 
-## 11. Verify the Issue Template
+## 10. Verify the Issue Template
 
 The enrollment repo should have a GitHub issue template at `.github/ISSUE_TEMPLATE/student-invite.yml`. This template:
 
 - Is titled "Request Assignment Repository"
 - Auto-applies the `provision-repo` label (which triggers the workflow)
-- Collects the student's Full Sail email and claim code
+- Collects only the course code (no email, no roster)
 
 If the file is missing or corrupted, restore it from this repository. The `provision-repo` label must exist in the repo for the issue template to apply it:
 
@@ -287,14 +256,13 @@ gh label create provision-repo --repo FSProjectPortfolioIV/DEV4CourseEnrollment 
 
 ---
 
-## 12. Test the Workflow
+## 11. Test the Workflow
 
 Before announcing to students, test the full flow end-to-end:
 
-1. **Ensure your own email hash is in `hash.db`** (or use a test email)
-2. **Know the current claim code** (the plaintext that hashes to `EXPECTED_HASH`)
+1. **Know the course code** (the plaintext that hashes to `COURSE_CODE`)
 3. Go to the enrollment repo on GitHub and open a new issue using the "Request Assignment Repository" template
-4. Enter a valid Full Sail email and the current claim code
+4. Enter a valid Full Sail email and the current course code
 5. Submit the issue
 
 ### Expected behavior
@@ -311,14 +279,14 @@ Before announcing to students, test the full flow end-to-end:
 ### If the workflow fails
 
 - Check the **Actions** tab in the enrollment repo for error logs
-- Verify `ORG_ADMIN_TOKEN` is set correctly and has not expired
+- Verify `APP_ID` and `APP_PRIVATE_KEY` are set correctly
 - Verify the template repos exist and are marked as template repositories
-- Verify the claim code hash matches `EXPECTED_HASH`
-- Verify the student email hash exists in `hash.db`
+- Verify the course code hash matches `COURSE_CODE` in `dev4Info.txt`
+- Verify the course code was entered exactly (it is case-sensitive)
 
 ---
 
-## 13. Cleanup Workflow (Automatic)
+## 12. Cleanup Workflow (Automatic)
 
 The `cleanup-issues.yml` workflow runs hourly and redacts comments on closed issues older than 30 minutes. This protects student privacy by removing email addresses and repo links that were posted in issue comments.
 
@@ -350,4 +318,4 @@ No additional setup is needed for this workflow — it uses the automatic `GITHU
 | Permission | Why |
 |------------|-----|
 | `issues: write` | Post comments, close issues, redact issue bodies |
-| `contents: read` | Checkout the enrollment repo (for `hash.db`) |
+| `contents: read` | Checkout the enrollment repo (for `dev4Info.txt`) |

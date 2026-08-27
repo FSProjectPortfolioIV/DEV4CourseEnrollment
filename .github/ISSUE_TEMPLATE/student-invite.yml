@@ -1,5 +1,5 @@
 name: Request Assignment Repository
-description: Instantly provision your private assignment repository using the shared monthly claim code and fullsail.edu.
+description: Instantly provision your private assignment repository using the course code.
 title: "Private Repository Request"
 labels: ["provision-repo"]
 body:
@@ -9,17 +9,9 @@ body:
         ### Welcome to Project and Portfolio: Development IV (aka DEV4)!
         Clicking submit below will generate your personal, private workspace under our organization.
   - type: input
-    id: email
-    attributes:
-      label: Full Sail Email
-      description: Must be a valid Full Sail email address ending in student.fullsail.edu (e.g. yourname@student.fullsail.edu).
-      placeholder: yourname@student.fullsail.edu
-    validations:
-      required: true
-  - type: input
     id: passcode
     attributes:
-      label: Claim Code
-      placeholder: Enter the passcode provided by your instructor.
+      label: Course Code
+      placeholder: Enter the course code provided by your instructor.
     validations:
       required: true
