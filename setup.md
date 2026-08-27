@@ -120,8 +120,10 @@ This can also be done in the Github UI.
 
 We need to create a GitHub App under the organization to authorize access to the private template repositories in the provisioning script
 
-1. On GitHub navigate to your enrollment repository's settings, RepositoryNameForCourseEnrollment > Settings
-2. Developer Settings > GitHub Apps
+1. Go to your **organization** settings -- NOT the repository settings. Repositories
+   have no Developer settings section, which is why you cannot find it there:
+   `https://github.com/organizations/YourOrganizationName/settings/apps`
+2. Developer settings > GitHub Apps  (bottom of the left sidebar)
 3. Click 'New GitHub App'
 4. Give it a name (ex: DEV4 Enrollment) and homepage URL (you can just use google here, it doesn't matter)
 5. Under Webhook uncheck Active
@@ -138,9 +140,12 @@ We need to create a GitHub App under the organization to authorize access to the
 
 Now we need to add 2 more secrets related to the App. Lets get the data we need first
 
-1. On GitHub navigate to your enrollment repository's settings, RepositoryNameForCourseEnrollment > Settings
-2. Developer Settings > GitHub Apps > Click Edit next to your App created in the previous step
-3. Copy the App ID number and save it for the next steps
+1. Go to `https://github.com/organizations/YourOrganizationName/settings/apps` and click
+   Edit next to the App you created in the previous step
+2. Copy the **Client ID** (starts with `Iv23...`) and save it for the next steps.
+   The workflow passes this secret as `client-id`, so it must be the Client ID -- NOT the
+   numeric App ID shown beside it. (If you would rather use the numeric App ID, change
+   `client-id:` to `app-id:` in provision.yml.)
 4. Scroll to the bottom, under the Private Keys sections click Generate a private key
 5. When you do so you will see a new key hash generated in the list, ignore this information.
 6. Generating the key will also trigger a file to be downloaded to your computer, a pem file. Note where that files is for the next steps
@@ -150,7 +155,7 @@ Now that we have the data, lets create our secrets
 1. On Github navigate to your enrollment repository's settings, RepositoryNameForCourseEnrollment > Settings
 2. Secrets and Variables > Actions
 3. Then click 'New Repository Secret'
-4. Name the first secret App_ID and paste the App ID copied above in the Secret section.
+4. Name the first secret APP_ID and paste the Client ID copied above into the Secret section.
 5. Click 'Add Secret'
 6. Then click 'New Repository Secret' again
 7. Name this secret APP_PRIVATE_KEY
@@ -158,6 +163,16 @@ Now that we have the data, lets create our secrets
 9. Copy the entire file including the begin and end lines with all the dashes.
 10. Paste that into the Secret section for this new secret
 11. Click 'Add Secret'
+
+### Install the App on the organization
+
+Creating the App is not enough -- it must also be installed:
+
+1. On the App's settings page, click **Install App** in the left sidebar
+2. Install it on your organization
+3. Choose **All repositories**. The workflow creates new repos and immediately calls the
+   collaborator API against them, so a restricted selected-repositories list risks the
+   App not being able to reach a repo it just made.
 
 ---
 

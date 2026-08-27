@@ -1,6 +1,6 @@
 # PREFIX: dev4-
 # TEMPLATE: PPIV_HANDOUT
-# COURSE_CODE: ad6ef0ee6945bf78405312c97181b25466d08165ee1be4c104b960b27be37c4f
+# COURSE_CODE: 522d9d0786e4bcdd18e2d35e85f533386bd04b5223fa82defba7bcf6e07fc511
 
 
 # PREFIX       repo name prefix; the student's GitHub login is appended
