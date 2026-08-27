@@ -106,13 +106,13 @@ Student enrollment issues accumulate over time. Use the GitHub CLI to list and d
 
 ```bash
 # List closed issues (number and title)
-gh issue list --repo FSProjectPortfolioIV/OPSCourseEnrollment --state closed --json number,title --jq '.[] | "\(.number)\t\(.title)"'
+gh issue list --repo FSProjectPortfolioIV/DEV4CourseEnrollment --state closed --json number,title --jq '.[] | "\(.number)\t\(.title)"'
 
 # Count closed issues
-gh issue list --repo FSProjectPortfolioIV/OPSCourseEnrollment --state closed --json number --jq 'length'
+gh issue list --repo FSProjectPortfolioIV/DEV4CourseEnrollment --state closed --json number --jq 'length'
 
 # Delete all closed issues
-gh issue list --repo FSProjectPortfolioIV/OPSCourseEnrollment --state closed --json number --jq '.[].number' | xargs -I {} gh issue # delete {} --repo FSProjectPortfolioIV/OPSCourseEnrollment # --yes
+gh issue list --repo FSProjectPortfolioIV/DEV4CourseEnrollment --state closed --json number --jq '.[].number' | xargs -I {} gh issue # delete {} --repo FSProjectPortfolioIV/DEV4CourseEnrollment # --yes
 ```
 
 > **Warning:** `gh issue delete --yes` skips the confirmation prompt. Always review the list of closed issues before deleting. Deletion is permanent and cannot be undone.

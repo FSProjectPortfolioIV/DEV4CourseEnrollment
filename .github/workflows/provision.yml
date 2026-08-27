@@ -125,8 +125,8 @@ jobs:
           SUMMARY=""
 
           for N in $LABS; do
-            TEMPLATE_REPO="SPRLabs${N}"
-            NEW_REPO_NAME="SPR_${MONTH_ABBREV}_Labs_${STUDENT_EMAIL_USERNAME}"
+            TEMPLATE_REPO="fsprojectportfolioiv_handout-dev4-starting-materials-v1-1-PPIV_HANDOUT${N}"
+            NEW_REPO_NAME="dev4-starting-materials-v1-1-${STUDENT_EMAIL_USERNAME}"
 
             # Skip creation if the student already has this repo
             if gh repo view "$ORG/$NEW_REPO_NAME" > /dev/null 2>&1; then
@@ -164,7 +164,7 @@ jobs:
               -f permission='admin'
 
             echo "Setting topics..."
-            gh repo edit "$ORG/$NEW_REPO_NAME" --add-topic "spr-student"
+            gh repo edit "$ORG/$NEW_REPO_NAME" --add-topic "dev4-student"
 
             echo "Initializing assignment branch and PR..."
             rm -rf "$NEW_REPO_NAME"
